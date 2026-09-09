@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Bee Colony &mdash; Honey Farm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="game-frame">
+
+  <!-- ===================== MEADOW BACKGROUND ===================== -->
+  <div class="meadow-bg">
+    <div class="sky-glow"></div>
+    <div class="cloud c1">☁️</div>
+    <div class="cloud c2">☁️</div>
+    <div class="cloud c3">☁️</div>
+    <div class="sun-shine"></div>
+
+    <div class="flower-field left">
+      <span class="flower sunflower" style="--d:0s">🌻</span>
+      <span class="flower clover" style="--d:1.2s">🍀</span>
+      <span class="flower wildflower" style="--d:.6s">🌼</span>
+      <span class="flower lavender" style="--d:1.8s">💜</span>
+    </div>
+    <div class="flower-field right">
+      <span class="flower wildflower" style="--d:.3s">🌼</span>
+      <span class="flower sunflower" style="--d:1.5s">🌻</span>
+      <span class="flower clover" style="--d:.9s">🍀</span>
+    </div>
+
+    <!-- forager bee flight paths between meadow and hive -->
+    <div class="bee-flight path-a">🐝</div>
+    <div class="bee-flight path-b">🐝</div>
+  </div>
+
+  <!-- Bees that are not assigned to nectar or food foraging roam freely around the colony. -->
+  <div class="free-bee-layer" id="free-bee-layer" aria-hidden="true"></div>
+
+  <!-- ===================== TOP RESOURCE BAR ===================== -->
+  <header class="resource-bar">
+    <div class="resource-chip honey">
+      <span class="ic">🍯</span><span class="val" id="res-honey">3,214</span>
+    </div>
+    <div class="resource-chip nectar">
+      <span class="ic">🌸</span><span class="val" id="res-nectar">861</span>
+    </div>
+    <div class="resource-chip pollen">
+      <span class="ic">🌼</span><span class="val" id="res-pollen">540</span>
+    </div>
+    <div class="resource-chip beeswax">
+      <span class="ic">🕯️</span><span class="val" id="res-beeswax">128</span>
+    </div>
+    <div class="resource-chip jelly">
+      <span class="ic">👑</span><span class="val" id="res-jelly">12</span>
+    </div>
+    <button class="settings-btn" title="Settings">⚙️</button>
+  </header>
+
+  <!-- ===================== COLONY STATUS STRIP ===================== -->
+  <section class="colony-status">
+    <div class="status-item">
+      <span class="label">Queen Lv.</span><span class="value" id="stat-queen-level">5</span>
+    </div>
+    <div class="status-item">
+      <span class="label">Workers</span><span class="value"><span id="stat-workers">24</span><small>/<span id="stat-workers-max">30</span></small></span>
+    </div>
+    <div class="status-item">
+      <span class="label">Brood</span><span class="value" id="stat-brood">12</span>
+    </div>
+    <div class="status-item">
+      <span class="label">Hive Lv.</span><span class="value" id="stat-hive-level">4</span>
+    </div>
+    <div class="status-item happiness">
+      <span class="label">Happiness</span>
+      <div class="mini-bar"><div class="mini-fill" id="stat-happiness-fill" style="width:86%"></div></div>
+    </div>
+    <div class="status-item production">
+      <span class="label">Honey</span><span class="value"><span id="stat-honey-rate">+125</span><small>/min</small></span>
+    </div>
+  </section>
+
+  <!-- ===================== MAIN STAGE ===================== -->
+  <main class="stage">
+
+    <!-- ---- HIVE / HONEYCOMB PANEL ---- -->
+    <section class="hive-panel">
+      <div class="panel-title">
+        <span>🏠 Hive</span>
+        <span class="hive-level-badge" id="hive-level-badge">Lv. 4</span>
+      </div>
+
+      <!-- hive role assignment: 1 nectar hive, 1 storage hive, rest = honey production -->
+      <div class="hive-roles" id="hive-roles">
+        <span class="hive-role-badge nectar" title="Nectar Hive — mengumpulkan nectar &amp; pollen dari meadow">🌸 <b id="hive-role-nectar">1</b></span>
+        <span class="hive-role-badge storage" title="Storage Hive — menyimpan makanan &amp; merawat brood">🏺 <b id="hive-role-storage">1</b></span>
+        <span class="hive-role-badge honey" title="Honey Hive — memproduksi Honey &amp; Beeswax">🍯 <b id="hive-role-honey">3</b></span>
+      </div>
+      <div class="hive-purpose"><span></span>Pusat koloni · klik cell untuk atur tugas lebah</div>
+
+      <div class="honeycomb-wrap">
+
+        <!-- Queen at the center of the comb -->
+        <div class="queen-cell">
+          <div class="pheromone-aura"></div>
+          <div class="pheromone-aura delay"></div>
+          <div class="queen-sprite bee-3d queen-bee" title="Queen Bee">
+            <span class="bee-crown">👑</span>
+            <span class="bee-wing wing-left"></span><span class="bee-wing wing-right"></span>
+            <span class="bee-body"><i></i><i></i><i></i></span>
+            <span class="bee-head"><b></b><b></b></span>
+            <span class="bee-stinger"></span>
+          </div>
+          <div class="queen-card">
+            <div class="queen-row"><span>Queen Lv.</span><b id="queen-level">5</b></div>
+            <div class="queen-row"><span>Egg Prod.</span><b id="queen-egg-rate">+3/min</b></div>
+            <div class="queen-row"><span>Pheromone</span><b class="glow-text">Active</b></div>
+          </div>
+          <div class="buff-tags" id="queen-buffs">
+            <span class="buff">⚡ +10% Speed</span>
+            <span class="buff">🍯 +15% Honey</span>
+            <span class="buff">🐣 +10% Brood</span>
+          </div>
+        </div>
+
+        <!-- Hexagon honeycomb grid — one hex per real hive (Nectar/Storage/Honey), filled by game-algorithm.js -->
+        <div class="hex-grid" id="hex-grid"></div>
+
+        <!-- hive exit hole: bees fly out from here toward the meadow, then return -->
+        <div class="hive-entrance-hole" title="Pintu keluar sarang">🕳️</div>
+
+        <!-- real Nectar/Food Forager bees, one sprite per bee, animated by game-algorithm.js -->
+        <div class="nectar-bee-layer" id="nectar-bee-layer"></div>
+        <div class="nectar-bee-layer food-bee-layer" id="food-bee-layer"></div>
+
+        <!-- worker bees roaming around the comb -->
+        <div class="worker worker-2" title="Nurse Bee — tending Brood">🐝<i class="carry">🐛</i></div>
+        <div class="worker worker-3" title="Builder Bee — using Beeswax">🐝<i class="carry">🕯️</i></div>
+        <div class="worker worker-4" title="Honey Processor — refining Nectar">🐝<i class="carry">🍯</i></div>
+        <div class="guard-bee" title="Guard Bee — guarding entrance">🐝🛡️</div>
+
+        <!-- ambient particles -->
+        <span class="pollen-particle p1">✨</span>
+        <span class="pollen-particle p2">✨</span>
+        <span class="pollen-particle p3">✨</span>
+
+        <div class="toast-build" id="toast-build">✔ Honeycomb Cell Selesai!</div>
+      </div>
+    </section>
+
+    <!-- ---- HONEY STORAGE PANEL ---- -->
+    <aside class="storage-panel">
+      <div class="panel-title"><span>🍯 Honey Storage</span></div>
+
+      <div class="honey-jar">
+        <div class="jar-glass" id="jar-glass">
+          <div class="jar-fill" id="jar-fill" style="height:0%"></div>
+          <span class="jar-shine"></span>
+          <span class="drop d1">🍯</span>
+          <span class="drop d2">🍯</span>
+        </div>
+        <div class="jar-cap"></div>
+      </div>
+
+      <div class="jar-capacity">Honey <b id="jar-honey-val">0</b> / <span id="jar-honey-cap">0</span></div>
+
+      <button class="collect-btn" id="collect-btn">
+        <span class="collect-ic">🍯</span> Sell Honey
+      </button>
+
+      <div class="hive-entrance-note">
+        <span class="entrance-ic">🚪</span> Guarded Entrance
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ===================== BOTTOM NAVIGATION ===================== -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active"><span class="nav-ic">🏠</span><span>Hive</span></button>
+    <button class="nav-btn"><span class="nav-ic">🌸</span><span>Meadow</span></button>
+    <button class="nav-btn"><span class="nav-ic">🐝</span><span>Bees</span></button>
+    <button class="nav-btn"><span class="nav-ic">👑</span><span>Queen</span></button>
+    <button class="nav-btn"><span class="nav-ic">🍯</span><span>Honey</span></button>
+    <button class="nav-btn"><span class="nav-ic">🛒</span><span>Shop</span></button>
+  </nav>
+
+  <!-- level-up celebratory effect, triggered by the algorithm on queen/hive level-up -->
+  <div class="levelup-fx" id="levelup-fx">
+    <div class="levelup-burst">⭐</div>
+    <div class="levelup-text" id="levelup-text">Queen Level Up!</div>
+  </div>
+
+  <!-- Hive assignment popup: content is filled dynamically per hive type (Nectar/Storage) -->
+  <div class="bee-popup" id="bee-popup">
+    <div class="bee-popup-card">
+      <button class="bee-popup-close" id="bee-popup-close">✕</button>
+      <div class="bee-popup-title" id="bee-popup-title">🌸 Nectar Hive</div>
+      <div id="bee-popup-body"></div>
+      <div class="bee-popup-note" id="bee-popup-note"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="script.js"></script>
+<script src="game-algorithm.js"></script>
+</body>
+</html>
