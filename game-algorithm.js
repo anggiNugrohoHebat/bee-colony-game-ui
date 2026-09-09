@@ -1,9 +1,11 @@
 // ============================================================================
-// Bee Colony / Honey Farm — idle-colony simulation algorithm (single file).
-// Everything below (state, formulas, tick loop, DOM rendering) lives here so
-// it can be dropped into index.html as one <script> and read/reasoned about
-// as a single unit.
+// Bee Colony / Honey Farm — simulation controller and DOM renderer.
+// Individual Bee, Hive, and Jar models live in their own script files.
 // ============================================================================
+
+const { createBee } = window.BeeModel;
+const { createHoneyHive, distributeAcrossHives, getHoneyHiveCount } = window.HiveModel;
+const { addHoneyToJar, createHoneyJar, sellHoneyJar } = window.JarModel;
 
 (() => {
   const TICK_MS = 1000;
@@ -26,9 +28,9 @@
   // Nectar Forager bee lifecycle: out (searching, hidden) -> arriving (flying in) ->
   // depositing (sitting at the Nectar Hive, +1 Nectar) -> leaving (flying out) -> out again.
   const NECTAR_OUT_SEC = { min: 4, max: 8 };
-  const NECTAR_ARRIVE_SEC = { min: 1, max: 1.5 };
+  const NECTAR_ARRIVE_SEC = { min: 2.8, max: 4.2 };
   const NECTAR_DEPOSIT_SEC = { min: 1.5, max: 2.5 };
-  const NECTAR_LEAVE_SEC = { min: 1, max: 1.5 };
+  const NECTAR_LEAVE_SEC = { min: 2.5, max: 3.8 };
   // Food Foragers return with a randomly selected insect prey each trip.
   const FOOD_FORAGER_PREY = ['🐛', '🪲', '🐞', '🦗', '🪰'];
 
@@ -48,18 +50,14 @@
   const hiveLevelUpCost = (level) => ({ honey: level * 40, beeswax: level * 8 }); // resources
   const LEVEL_UP_COOLDOWN_MS = 4000;
 
-  // Honey Hive count grows with hive level ("the rest" of the hives). Nectar Hive and
-  // Storage Hive both start at 1 and can be increased later via growHiveCount(type).
-  function getHoneyHiveCount(hiveLevel) {
-    return Math.max(1, hiveLevel - 1);
-  }
-
   // ---- mutable game state ---------------------------------------------------------
   const state = {
     resources: { honey: 20, nectar: 10, pollen: 3, beeswax: 5, jelly: 12 },
     // Honey kept in the jar is separate from the colony resources used by the simulation.
     // It starts empty and only increases when the player harvests a full Honey Hive.
-    honeyStorage: 0,
+    jar: createHoneyJar(),
+    // Nectar promised to Honey Makers that are still flying toward the Nectar Hive.
+    honeyNectarReserved: 0,
     hives: {
       nectar: { count: 1 },
       storage: { count: 1 },
@@ -85,11 +83,11 @@
       free: [],
       // Only bees that have reached the entrance become active foragers. This lets a
       // newly assigned free bee visibly fly home before it starts its new role.
-      assigned: { nectar: 3, food: 3 },
+      assigned: { nectar: 2, food: 1 },
     },
     // Player-adjustable via the Nectar Hive popup's +/- buttons.
-    nectarForagerAssigned: 3,
-    foodForagerAssigned: 3,
+    nectarForagerAssigned: 2,
+    foodForagerAssigned: 1,
 
     // Player-adjustable via the Storage Hive popup's +/- buttons.
     nurseAssigned: 5,
@@ -100,8 +98,8 @@
     lastEggRate: 0,
   };
 
-  // Every food resource (honey+nectar+pollen+beeswax) shares one Storage Hive pool.
-  // Nectar/Honey Hives additionally cap their own resource individually.
+  // Storage Hive holds colony food (honey, pollen, and wax). Nectar belongs only to
+  // the Nectar Hive, so a Nectar Forager must never increase the Storage indicator.
   function getCaps(s) {
     return {
       storage: s.hives.storage.count * HIVE_CAPACITY_PER_HIVE,
@@ -113,7 +111,7 @@
   function syncHoneyHiveInstances(s) {
     const instances = s.hives.honey.instances;
     while (instances.length < s.hives.honey.count) {
-      instances.push({ status: 'empty', incoming: false, timer: 0 });
+      instances.push(createHoneyHive());
     }
     instances.length = s.hives.honey.count;
   }
@@ -122,26 +120,32 @@
 
   // Keeps one { phase, timer, total } instance per forager bee, adding new ones as count grows.
   // `total` mirrors the current phase's duration so flight progress (0..1) can be rendered.
-  function syncForagerBees(bees, count) {
+  function syncForagerBees(bees, count, role) {
     while (bees.length < count) {
       const total = randomSec(NECTAR_OUT_SEC);
-      bees.push({ phase: 'out', timer: total * Math.random(), total }); // staggered start
+      bees.push(createBee(role, 'searching-outside', {
+        phase: 'out', timer: total * Math.random(), total,
+      })); // staggered start
     }
     bees.length = count;
   }
 
-  // Unassigned bees are visual-only: they roam unpredictably across the game screen.
+  // Idle bees roam until they are assigned to forage or process honey.
   function syncFreeBees(bees, count) {
     while (bees.length < count) {
-      bees.push({
+      bees.push(createBee('idle', 'roaming', {
         left: 8 + Math.random() * 84,
         top: 18 + Math.random() * 64,
         timer: Math.random() * 3,
-        flightSec: 2.5 + Math.random() * 3.5,
+        flightSec: 4.5 + Math.random() * 4.5,
         facing: Math.random() > 0.5 ? 1 : -1,
-      });
+      }));
     }
-    bees.length = count;
+    // Never discard a bee that is in transit or working; its object must survive until
+    // that activity completes. Only surplus idle bees can leave the free-bee pool.
+    for (let index = bees.length - 1; index >= 0 && bees.length > count; index--) {
+      if (bees[index].activity === 'roaming' && !bees[index].handoff) bees.splice(index, 1);
+    }
   }
 
   function getGameFrameSpot(selector, fallback) {
@@ -176,9 +180,11 @@
       for (const bee of candidates) {
         const startLeft = bee.left;
         bee.handoff = role;
+        bee.role = `${role}-forager`;
+        bee.activity = 'returning-to-hive';
         bee.left = entrance.left;
         bee.top = entrance.top;
-        bee.flightSec = 1.35 + Math.random() * 1.1;
+        bee.flightSec = 3 + Math.random() * 1.5;
         bee.timer = bee.flightSec;
         bee.facing = entrance.left >= startLeft ? 1 : -1;
       }
@@ -188,22 +194,63 @@
   function advanceFreeBees(bees, count, dtSeconds) {
     syncFreeBees(bees, count);
     queueFreeBeeHandoffs();
-    const arrived = { nectar: 0, food: 0 };
+    const arrived = { nectar: [], food: [] };
     for (let index = bees.length - 1; index >= 0; index--) {
       const bee = bees[index];
       bee.timer -= dtSeconds;
       if (bee.handoff) {
         if (bee.timer <= 0) {
+          if (bee.handoff.startsWith('honey-nectar:')) {
+            const hiveIndex = Number(bee.handoff.split(':')[1]);
+            // This specific bee has reached the Nectar Hive, takes exactly one Nectar,
+            // then continues to its assigned Honey Hive.
+            state.honeyNectarReserved = Math.max(0, state.honeyNectarReserved - 1);
+            if (state.resources.nectar >= 1) {
+              state.resources.nectar -= 1;
+              const honeySpot = getGameFrameSpot(`.honey-hive[data-honey-index="${hiveIndex}"]`, { left: 52, top: 64 });
+              const startLeft = bee.left;
+              bee.handoff = `honey:${hiveIndex}`;
+              bee.activity = 'going-to-honey-hive';
+              bee.cargo = 'nectar';
+              bee.left = honeySpot.left;
+              bee.top = honeySpot.top;
+              bee.flightSec = 3 + Math.random() * 1.5;
+              bee.timer = bee.flightSec;
+              bee.facing = honeySpot.left >= startLeft ? 1 : -1;
+              continue;
+            }
+            // The nectar may have been consumed by another action while this bee flew.
+            const hive = state.hives.honey.instances[hiveIndex];
+            if (hive) hive.incoming = false;
+            bee.handoff = null;
+            bee.role = 'idle';
+            bee.activity = 'roaming';
+            continue;
+          }
           if (bee.handoff.startsWith('honey:')) {
             const hiveIndex = Number(bee.handoff.split(':')[1]);
             const hive = state.hives.honey.instances[hiveIndex];
             if (hive && hive.incoming) {
               hive.incoming = false;
               hive.status = 'working';
-              hive.timer = HONEY_CONVERT_SEC;
+              hive.worker = bee;
+              bee.role = 'honey-maker';
+              bee.activity = 'making-honey';
+              bee.timer = HONEY_CONVERT_SEC;
+              bees.splice(index, 1);
+              continue;
             }
+            bee.handoff = null;
+            bee.role = 'idle';
+            bee.activity = 'roaming';
+            continue;
           } else {
-            arrived[bee.handoff] += 1;
+            const role = bee.handoff;
+            bee.phase = 'out';
+            bee.activity = 'searching-outside';
+            bee.timer = randomSec(NECTAR_OUT_SEC) * Math.random();
+            bee.total = bee.timer;
+            arrived[role].push(bee);
           }
           bees.splice(index, 1);
         }
@@ -212,61 +259,71 @@
       if (bee.timer > 0) continue;
       bee.left = 6 + Math.random() * 88;
       bee.top = 16 + Math.random() * 68;
-      bee.flightSec = 2.5 + Math.random() * 4.5;
+      bee.flightSec = 4.5 + Math.random() * 4.5;
       bee.timer = bee.flightSec * (0.55 + Math.random() * 0.6);
       bee.facing = Math.random() > 0.5 ? 1 : -1;
     }
-    state.bees.assigned.nectar += arrived.nectar;
-    state.bees.assigned.food += arrived.food;
+    for (const role of ['nectar', 'food']) {
+      state.bees.assigned[role] += arrived[role].length;
+      state.bees[role === 'nectar' ? 'nectarForagers' : 'foodForagers'].push(...arrived[role]);
+    }
   }
 
   function advanceHoneyHives(dtSeconds) {
     let completed = 0;
     for (const hive of state.hives.honey.instances) {
       if (hive.status !== 'working') continue;
-      hive.timer -= dtSeconds;
-      if (hive.timer <= 0) {
-        hive.timer = 0;
+      const bee = hive.worker;
+      if (!bee) continue;
+      bee.timer -= dtSeconds;
+      if (bee.timer <= 0) {
         hive.status = 'full';
+        bee.role = 'idle';
+        bee.activity = 'roaming';
+        bee.cargo = null;
+        bee.handoff = null;
+        bee.timer = 0;
+        hive.worker = null;
+        state.bees.free.push(bee);
         completed += 1;
       }
     }
     return completed;
   }
 
-  // A free bee takes 1 Nectar and flies to an empty Honey Hive to convert it.
-  function dispatchHoneyWorker() {
-    if (state.resources.nectar < 1 || state.bees.free.some((bee) => bee.handoff)) return;
-    const hiveIndex = state.hives.honey.instances.findIndex((hive) => hive.status === 'empty' && !hive.incoming);
-    const bee = state.bees.free.find((candidate) => !candidate.handoff);
-    if (hiveIndex < 0 || !bee) return;
+  // Assign as many idle bees as possible at once: one bee per empty Honey Hive.
+  // Each assignment reserves one currently available Nectar, which the bee takes only
+  // after physically arriving at the Nectar Hive.
+  function dispatchHoneyWorkers() {
+    const emptyHiveIndexes = state.hives.honey.instances
+      .map((hive, index) => (hive.status === 'empty' && !hive.incoming ? index : -1))
+      .filter((index) => index >= 0);
+    const idleBees = state.bees.free.filter((bee) => !bee.handoff && bee.activity === 'roaming');
+    const availableNectar = Math.max(0, Math.floor(state.resources.nectar) - state.honeyNectarReserved);
+    const assignmentCount = Math.min(emptyHiveIndexes.length, idleBees.length, availableNectar);
+    if (assignmentCount === 0) return;
 
-    const hiveSpot = getGameFrameSpot(`.honey-hive[data-honey-index="${hiveIndex}"]`, { left: 52, top: 64 });
-    const startLeft = bee.left;
-    state.resources.nectar -= 1;
-    state.hives.honey.instances[hiveIndex].incoming = true;
-    bee.handoff = `honey:${hiveIndex}`;
-    bee.left = hiveSpot.left;
-    bee.top = hiveSpot.top;
-    bee.flightSec = 1.35 + Math.random() * 1.1;
-    bee.timer = bee.flightSec;
-    bee.facing = hiveSpot.left >= startLeft ? 1 : -1;
+    const nectarSpot = getGameFrameSpot('#hex-grid .hex-hive.nectar-hive', { left: 42, top: 64 });
+    for (let index = 0; index < assignmentCount; index += 1) {
+      const bee = idleBees[index];
+      const hiveIndex = emptyHiveIndexes[index];
+      const startLeft = bee.left;
+      state.hives.honey.instances[hiveIndex].incoming = true;
+      state.honeyNectarReserved += 1;
+      bee.handoff = `honey-nectar:${hiveIndex}`;
+      bee.role = 'honey-maker';
+      bee.activity = 'going-to-nectar-hive';
+      bee.targetHiveIndex = hiveIndex;
+      bee.left = nectarSpot.left;
+      bee.top = nectarSpot.top;
+      bee.flightSec = 3 + Math.random() * 1.5;
+      bee.timer = bee.flightSec;
+      bee.facing = nectarSpot.left >= startLeft ? 1 : -1;
+    }
   }
 
   function totalFood(s) {
-    return s.resources.honey + s.resources.nectar + s.resources.pollen + s.resources.beeswax;
-  }
-
-  // Fills hives sequentially (hive 1 fills to cap before hive 2 starts, etc.).
-  function distributeAcrossHives(amount, count) {
-    const perHive = [];
-    let remaining = amount;
-    for (let i = 0; i < count; i++) {
-      const v = Math.max(0, Math.min(HIVE_CAPACITY_PER_HIVE, remaining));
-      perHive.push(v);
-      remaining -= v;
-    }
-    return perHive;
+    return s.resources.honey + s.resources.pollen + s.resources.beeswax;
   }
 
   // Future hook: any hive type's count can grow independently (not wired to UI yet).
@@ -344,7 +401,7 @@
     }
 
     // 3) Nectar Foragers and Food Foragers both do individual round trips (+1 resource per
-    //    return). Nectar is capped by the Nectar Hive's own room; Pollen only by shared Storage.
+    //    return). Nectar is kept only in the Nectar Hive; Pollen uses shared Storage.
     const caps = getCaps(state);
     let sharedRoom = Math.max(0, caps.storage - totalFood(state));
 
@@ -355,13 +412,13 @@
       // looked stuck at ~5 and stopped increasing.
       const nectarRoom = Math.max(0, caps.nectarHive - state.resources.nectar);
       state.resources.nectar += Math.min(1, nectarRoom); // +1 Nectar per completed round trip
-    });
+    }, null, 'nectar-forager');
 
     advanceForagerBees(state.bees.foodForagers, roles.foodForager, tripSpeed, () => {
       const gained = Math.min(1, sharedRoom); // +1 Pollen per completed round trip
       state.resources.pollen += gained;
       sharedRoom -= gained;
-    }, () => FOOD_FORAGER_PREY[Math.floor(Math.random() * FOOD_FORAGER_PREY.length)]);
+    }, () => FOOD_FORAGER_PREY[Math.floor(Math.random() * FOOD_FORAGER_PREY.length)], 'food-forager');
 
     // Honey Hives finish their current one-Nectar conversion before a new worker is sent.
     const honeyCompleted = advanceHoneyHives(dtSeconds);
@@ -374,7 +431,7 @@
       state.colony.total - state.bees.assigned.nectar - state.bees.assigned.food - honeyWorkers,
     );
     advanceFreeBees(state.bees.free, freeBeeCount, dtSeconds);
-    dispatchHoneyWorker();
+    dispatchHoneyWorkers();
 
     // 5) Builders secrete Beeswax, then spend it on cosmetic honeycomb-building milestones.
     const wantWax = roles.builder * WAX_PER_BUILDER_PER_MIN * dtMin * happinessMult;
@@ -421,29 +478,33 @@
 
   // Drives one forager bee array through its out -> arriving -> depositing -> leaving cycle.
   // `onDeposit` is called exactly once per completed round trip, to award that bee's resource.
-  function advanceForagerBees(bees, count, tripSpeed, onDeposit, getCargo) {
-    syncForagerBees(bees, count);
+  function advanceForagerBees(bees, count, tripSpeed, onDeposit, getCargo, role) {
+    syncForagerBees(bees, count, role);
     for (const bee of bees) {
       bee.timer -= state.lastDtSeconds * tripSpeed;
       if (bee.timer <= 0) {
         if (bee.phase === 'out') {
           // back from the meadow: fly in from the entrance hole toward the hive
           bee.phase = 'arriving';
+          bee.activity = 'returning-to-hive';
           bee.cargo = getCargo ? getCargo() : null;
           bee.total = randomSec(NECTAR_ARRIVE_SEC);
           bee.flightSec = bee.total / tripSpeed; // real wall-clock flight duration, for the CSS transition
         } else if (bee.phase === 'arriving') {
           onDeposit(); // arrived: deposit the resource it carried
           bee.phase = 'depositing';
+          bee.activity = 'depositing-resource';
           bee.total = randomSec(NECTAR_DEPOSIT_SEC);
         } else if (bee.phase === 'depositing') {
           // done depositing: fly back out to the entrance hole, then vanish to search again
           bee.phase = 'leaving';
+          bee.activity = 'leaving-hive';
           bee.cargo = null;
           bee.total = randomSec(NECTAR_LEAVE_SEC);
           bee.flightSec = bee.total / tripSpeed;
         } else {
           bee.phase = 'out';
+          bee.activity = 'searching-outside';
           bee.total = randomSec(NECTAR_OUT_SEC);
         }
         bee.timer += bee.total;
@@ -525,9 +586,9 @@
 
     // The jar is the player's harvested honey storage, not the colony's food pool.
     const storageUsed = totalFood(state);
-    const jarPct = Math.min(100, (state.honeyStorage / caps.storage) * 100);
+    const jarPct = Math.min(100, (state.jar.honey / caps.storage) * 100);
     $('jar-fill').style.height = `${jarPct}%`;
-    $('jar-honey-val').textContent = fmt(state.honeyStorage);
+    $('jar-honey-val').textContent = fmt(state.jar.honey);
     $('jar-honey-cap').textContent = fmt(caps.storage);
 
     renderHexGrid(caps, storageUsed);
@@ -541,8 +602,8 @@
     const grid = $('hex-grid');
     if (!grid) return;
 
-    const nectarPerHive = distributeAcrossHives(state.resources.nectar, state.hives.nectar.count);
-    const storagePerHive = distributeAcrossHives(storageUsed, state.hives.storage.count);
+    const nectarPerHive = distributeAcrossHives(state.resources.nectar, state.hives.nectar.count, HIVE_CAPACITY_PER_HIVE);
+    const storagePerHive = distributeAcrossHives(storageUsed, state.hives.storage.count, HIVE_CAPACITY_PER_HIVE);
 
     const cells = [
       ...nectarPerHive.map((used, index) => ({ kind: 'fill', type: 'nectar-hive', icon: '🌸', used, cap: HIVE_CAPACITY_PER_HIVE, label: 'Nectar Hive — klik untuk lihat tugas lebah', index })),
@@ -601,17 +662,38 @@
     };
   }
 
-  // Renders one forager bee array into its DOM layer. Both Nectar and Food Foragers work out
-  // of the same Nectar Hive building, so they share the same entrance hole + hive target spot.
+  // Perch slots are kept inside a hex so multiple bees at the same Hive remain readable.
+  // Values are pixels relative to the hex centre; the layout is converted back to the
+  // honeycomb's percentage coordinate system used by the bee layers.
+  const HIVE_PERCH_SLOTS = [
+    { x: -9, y: -10 }, { x: 9, y: -10 }, { x: -13, y: 3 }, { x: 11, y: 4 },
+    { x: -3, y: 12 }, { x: 2, y: -1 }, { x: -15, y: -5 }, { x: 15, y: -4 },
+  ];
+
+  function getHivePerchSpot(selector, beeIndex) {
+    const wrap = document.querySelector('.honeycomb-wrap');
+    const hive = document.querySelector(selector);
+    if (!wrap || !hive) return FALLBACK_SPOT;
+    const wrapRect = wrap.getBoundingClientRect();
+    const hiveRect = hive.getBoundingClientRect();
+    const slot = HIVE_PERCH_SLOTS[beeIndex % HIVE_PERCH_SLOTS.length];
+    return {
+      // left/top describe the sprite's upper-left corner, so centre it before applying
+      // the per-bee slot offset.
+      left: ((hiveRect.left + hiveRect.width / 2 - 13 + slot.x - wrapRect.left) / wrapRect.width) * 100,
+      top: ((hiveRect.top + hiveRect.height / 2 - 10 + slot.y - wrapRect.top) / wrapRect.height) * 100,
+    };
+  }
+
+  // Renders one forager bee array into its DOM layer. Both roles share the entrance, then
+  // perch in separate slots inside their respective Nectar or Storage Hive.
   function renderBeeLayer(layerId, bees, label, icon) {
     const layer = $(layerId);
     if (!layer) return;
     const entranceSpot = getSpotOf('.hive-entrance-hole');
-    let hiveSpot ="";
-    if(label=='Nectar Forager')
-        hiveSpot = getSpotOf('#hex-grid .hex-hive.nectar-hive');
-    if(label=='Food Forager')
-        hiveSpot = getSpotOf('#hex-grid .hex-hive.storage-hive');
+    const hiveSelector = label === 'Nectar Forager'
+      ? '#hex-grid .hex-hive.nectar-hive'
+      : '#hex-grid .hex-hive.storage-hive';
 
     while (layer.children.length < bees.length) {
       const el = document.createElement('span');
@@ -630,6 +712,7 @@
 
     bees.forEach((bee, index) => {
       const el = layer.children[index];
+      const hiveSpot = getHivePerchSpot(hiveSelector, index);
       el.classList.toggle('carrying', bee.phase === 'arriving' || bee.phase === 'depositing');
       el.className = `nectar-bee phase-${bee.phase}${el.classList.contains('carrying') ? ' carrying' : ''}`;
       const cargo = el.querySelector('.bee-cargo');
@@ -645,7 +728,7 @@
         // target this bee's destination hive directly; transition duration matches the real
         // flight time so the bee visually lands exactly when depositing (and the +1) starts.
         const flightSec = Math.max(0.05, bee.flightSec || 1);
-        el.style.transition = `left ${flightSec}s linear, top ${flightSec}s linear, opacity 0.3s ease`;
+        el.style.transition = `left ${flightSec}s cubic-bezier(.32,.04,.28,1.14), top ${flightSec}s cubic-bezier(.32,.04,.28,1.14), opacity .45s ease`;
         el.style.opacity = '1';
         el.style.left = `${hiveSpot.left}%`;
         el.style.top = `${hiveSpot.top}%`;
@@ -658,13 +741,13 @@
         el.style.transform = '';
       } else if (bee.phase === 'leaving') {
         const flightSec = Math.max(0.05, bee.flightSec || 1);
-        el.style.transition = `left ${flightSec}s linear, top ${flightSec}s linear, transform 0.3s ease`;
+        el.style.transition = `left ${flightSec}s cubic-bezier(.32,.04,.28,1.14), top ${flightSec}s cubic-bezier(.32,.04,.28,1.14), transform .4s ease`;
         el.style.opacity = '1';
         el.style.left = `${entranceSpot.left}%`;
         el.style.top = `${entranceSpot.top}%`;
         el.style.transform = 'scaleX(-1)';
       }
-      el.title = `${label} #${index + 1} — ${bee.phase}`;
+      el.title = `${bee.name} — ${label} · ${bee.activity}`;
     });
   }
 
@@ -688,11 +771,11 @@
     bees.forEach((bee, index) => {
       const el = layer.children[index];
       el.classList.toggle('handoff', Boolean(bee.handoff));
-      el.style.transition = `left ${bee.flightSec}s cubic-bezier(.36,.01,.55,1), top ${bee.flightSec}s cubic-bezier(.36,.01,.55,1)`;
+      el.style.transition = `left ${bee.flightSec}s cubic-bezier(.32,.04,.28,1.14), top ${bee.flightSec}s cubic-bezier(.32,.04,.28,1.14)`;
       el.style.left = `${bee.left}%`;
       el.style.top = `${bee.top}%`;
       el.style.setProperty('--bee-facing', bee.facing);
-      el.title = `Lebah bebas #${index + 1}`;
+      el.title = `${bee.name} — ${bee.role} · ${bee.activity}`;
     });
   }
 
@@ -717,8 +800,7 @@
 
   // ---- Sell Honey: bank the jar contents, then empty the jar ------------------------
   function sellHoney() {
-    state.bank.honeyCollected += state.honeyStorage;
-    state.honeyStorage = 0;
+    state.bank.honeyCollected += sellHoneyJar(state.jar);
     render();
   }
 
@@ -727,11 +809,8 @@
     const inst = state.hives.honey.instances[index];
     if (!inst || inst.status !== 'full') return;
     const caps = getCaps(state);
-    const room = Math.max(0, caps.storage - state.honeyStorage);
-    if (room < 1) return;
-    state.honeyStorage += 1;
+    if (!addHoneyToJar(state.jar, caps.storage)) return;
     inst.status = 'empty';
-    inst.timer = 0;
     render();
   }
 

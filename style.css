@@ -1199,6 +1199,26 @@ body {
   transform: scale(.72);
   transform-origin: center;
 }
+/* The outer element travels between points; this inner flutter gives its path a gentle,
+   playful wobble instead of the rigid straight-line look of a UI icon. */
+.nectar-bee.phase-arriving .nectar-bee-model,
+.nectar-bee.phase-leaving .nectar-bee-model {
+  animation: nectarFlightWobble 620ms ease-in-out infinite alternate;
+}
+.nectar-bee.phase-arriving .food-bee,
+.nectar-bee.phase-leaving .food-bee {
+  animation: foodFlightWobble 690ms ease-in-out infinite alternate;
+}
+@keyframes nectarFlightWobble {
+  0% { transform: translate(-3px, -2px) rotate(-7deg) scale(.84); }
+  50% { transform: translate(3px, 2px) rotate(5deg) scale(.81); }
+  100% { transform: translate(-2px, 3px) rotate(-3deg) scale(.84); }
+}
+@keyframes foodFlightWobble {
+  0% { transform: translate(-3px, 2px) rotate(6deg) scale(.94); }
+  50% { transform: translate(3px, -3px) rotate(-5deg) scale(.9); }
+  100% { transform: translate(-2px, -1px) rotate(4deg) scale(.94); }
+}
 .forager-bee .bee-body { left: 8px; top: 5px; width: 18px; height: 12px; }
 .forager-bee .bee-head { left: 2px; top: 6px; width: 10px; height: 10px; }
 .forager-bee .bee-wing { top: 0; width: 13px; height: 9px; }
@@ -1296,7 +1316,7 @@ body {
   filter: drop-shadow(0 0 8px rgba(255,210,84,.88));
 }
 .free-bee.handoff .free-roaming-bee {
-  animation-duration: 380ms;
+  animation: freeBeeFlightWobble 680ms ease-in-out infinite alternate;
 }
 .free-roaming-bee {
   transform: scaleX(var(--bee-facing, 1)) scale(.8);
@@ -1306,6 +1326,11 @@ body {
 @keyframes freeBeeHover {
   from { margin-top: -2px; }
   to { margin-top: 3px; }
+}
+@keyframes freeBeeFlightWobble {
+  0% { transform: translate(-3px, -2px) rotate(-7deg) scaleX(var(--bee-facing, 1)) scale(.8); }
+  50% { transform: translate(4px, 3px) rotate(6deg) scaleX(var(--bee-facing, 1)) scale(.76); }
+  100% { transform: translate(-2px, 2px) rotate(-4deg) scaleX(var(--bee-facing, 1)) scale(.8); }
 }
 .queen-sprite.bee-3d {
   width: 58px;
