@@ -1422,6 +1422,27 @@ body {
   100% { transform: translateX(8px) translateY(2px) rotate(-1deg); }
 }
 
+/* Honey Hive processing is shown as a precise progress bar, not a decorative bee icon. */
+.honey-progress {
+  display: block;
+  width: 30px;
+  height: 5px;
+  overflow: hidden;
+  border: 1px solid rgba(76, 48, 22, .42);
+  border-radius: 999px;
+  background: rgba(72, 48, 30, .24);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.18);
+}
+.honey-progress > i {
+  display: block;
+  width: var(--progress);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #dcae4d, #fff0a1);
+  box-shadow: 0 0 5px rgba(255, 219, 105, .55);
+  transition: width 850ms ease-out;
+}
+
 /* Give the colony itself visual priority over the compact storage sidebar. */
 .stage { grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; }
 .hive-panel { padding: 10px 11px 13px; }

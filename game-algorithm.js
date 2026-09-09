@@ -614,8 +614,11 @@ const { addHoneyToJar, createHoneyJar, sellHoneyJar } = window.JarModel;
         status: h.status,
         incoming: h.incoming,
         index,
-        icon: h.status === 'full' ? '🍯' : h.status === 'working' ? '🐝' : '○',
-        label: h.status === 'full' ? 'Full — klik untuk simpan 1 Honey ke toples!' : h.status === 'working' ? 'Lebah sedang mengubah Nectar menjadi Honey...' : h.incoming ? 'Lebah sedang menuju Hive...' : 'Honey Hive kosong',
+        icon: h.status === 'full' ? '🍯' : '○',
+        progress: h.status === 'working' && h.worker
+          ? Math.max(0, Math.min(100, (1 - h.worker.timer / HONEY_CONVERT_SEC) * 100))
+          : 0,
+        label: h.status === 'full' ? 'Full — klik untuk simpan 1 Honey ke toples!' : h.status === 'working' ? 'Sedang mengolah Nectar menjadi Honey...' : h.incoming ? 'Lebah sedang menuju Hive...' : 'Honey Hive kosong',
       })),
     ];
 
@@ -628,7 +631,9 @@ const { addHoneyToJar, createHoneyJar, sellHoneyJar } = window.JarModel;
           if (cell.kind === 'honey') {
             return `
               <div class="hex hex-hive ${cell.type} ${cell.status}${cell.incoming ? ' incoming' : ''}${cell.status === 'full' ? ' full ready-collect' : ''}" data-honey-index="${cell.index}" title="${cell.label}">
-                <span>${cell.icon}</span>
+                ${cell.status === 'working'
+                  ? `<span class="honey-progress" aria-label="Progress mengolah madu"><i style="--progress:${cell.progress}%"></i></span>`
+                  : `<span>${cell.icon}</span>`}
                 <span class="hex-fill-label">${cell.status === 'full' ? 'FULL · +1' : cell.status === 'working' ? 'MENGOLAH' : cell.incoming ? 'DATANG...' : 'KOSONG'}</span>
               </div>`;
           }
