@@ -635,7 +635,7 @@ const { addHoneyToJar, createHoneyJar, sellHoneyJar } = window.JarModel;
           const pct = Math.round((cell.used / cell.cap) * 100);
           const indexAttr = cell.type === 'nectar-hive' ? ` data-nectar-index="${cell.index}"` : '';
           return `
-            <div class="hex hex-hive ${cell.type}${pct >= 100 ? ' full' : ''}" style="--fill:${pct}%"${indexAttr} title="${cell.label} — ${fmt(cell.used)}/${cell.cap}">
+            <div class="hex hex-hive ${cell.type}${cell.type === 'nectar-hive' && cell.used > 0 ? ' has-nectar' : ''}${cell.type === 'storage-hive' && cell.used > 0 ? ' has-food' : ''}${pct >= 100 ? ' full' : ''}" style="--fill:${pct}%"${indexAttr} title="${cell.label} — ${fmt(cell.used)}/${cell.cap}">
               <span>${cell.icon}</span>
               <span class="hex-fill-label">${fmt(cell.used)}/${cell.cap}</span>
             </div>`;

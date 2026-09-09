@@ -1392,6 +1392,36 @@ body {
   50% { filter: brightness(1.2) saturate(1.12); }
 }
 
+/* Animated highlight at the existing Nectar fill boundary. No hive colour is changed. */
+.hex-hive.nectar-hive,
+.hex-hive.storage-hive {
+  position: relative;
+  overflow: hidden;
+}
+.hex-hive.nectar-hive.has-nectar::before,
+.hex-hive.storage-hive.has-food::before {
+  content: '';
+  position: absolute;
+  left: -25%;
+  bottom: calc(var(--fill) - 6px);
+  width: 150%;
+  height: 13px;
+  background: rgba(255,255,255,.3);
+  clip-path: polygon(0 56%, 8% 34%, 16% 52%, 25% 70%, 34% 48%, 43% 29%, 52% 48%, 61% 69%, 70% 51%, 79% 32%, 88% 50%, 100% 56%, 100% 100%, 0 100%);
+  animation: nectarSurfaceWave 1.15s cubic-bezier(.45,.02,.55,.98) infinite alternate;
+  pointer-events: none;
+}
+.hex-hive.nectar-hive > span,
+.hex-hive.storage-hive > span {
+  position: relative;
+  z-index: 1;
+}
+@keyframes nectarSurfaceWave {
+  0% { transform: translateX(-7px) translateY(3px) rotate(-2deg); }
+  45% { transform: translateX(5px) translateY(-3px) rotate(1.5deg); }
+  100% { transform: translateX(8px) translateY(2px) rotate(-1deg); }
+}
+
 /* Give the colony itself visual priority over the compact storage sidebar. */
 .stage { grid-template-columns: minmax(0, 1fr) 78px; gap: 8px; }
 .hive-panel { padding: 10px 11px 13px; }
